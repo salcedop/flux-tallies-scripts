@@ -10,6 +10,8 @@ import threading
 #from openmc.data import atomic_weight, atomic_mass
 import queue
 from mpi4py import MPI
+import itertools
+from multiprocessing import Process
 
 class AutoVivification(dict):
     """Implementation of perl's autovivification feature."""
@@ -30,55 +32,102 @@ def pre_process():
         print(e)
       finally:
         q.task_done()
-
-def process_collapse():
-    global nuc_data
-    global flux_tally
+def pre_process_dens():
     global dens_data
-    #nuc_data = {}
     while True:
-      nuc = q1.get()
+      mat = q1.get()
       try:
-        do_work2(nuc)
+        do_work_1(mat)
       except Exception as e:
         print(e)
       finally:
         q1.task_done()
 
+def process_collapse():
+    global nuc_data
+    global flux_tally
+    global dens_data
+    global res_dict
+    global fuel_mats
+    while True:
+      mat_id = q2.get()
+      try:
+        do_work_2(mat_id)
+      except Exception as e:
+        print(e)
+      finally:
+        q2.task_done()
 
 def get_fuel_mats():
-  fuel_mats = []
+  fuel_mats = {}
+  counter = -1
   mats = openmc.capi.materials
   for key,value in mats.items():
     imat = openmc.capi.materials[key]
     nucs = imat.nuclides
     len_nucs = len(nucs)
     if (len_nucs > 200):
-      fuel_mats.append(key)
+      counter += 1
+      fuel_mats[key] = counter 
   return fuel_mats
 
-def do_work2(item):
-  res_dict[mat_id][item] = {}
-  dens = dens_data[mat_id][item]['dens']
-  for irx,rx in enumerate(depletion_rx_list):
-   running_sum = 0.
-   xs = nuc_data[item][rx]['xs'] * dens
-   threshold = nuc_data[item][rx]['start_point']
-   end = len(xs)
-   for ielement in range(end):
-    if (threshold == 0):
-      group_xs = 0.
-      ielement = 1
-    else:
-      group_xs = xs[ielement]      
-      running_sum += flux_tally[ielement+threshold+shift-1]*group_xs
+def do_work_1(mat_id):
+    #with lock:
+    #  print(mat_id)
+    #dens_data[mat_id] = {}
+    for inucs,nucs in enumerate(openmc.capi.materials[mat_id].nuclides):
+      dens_data[mat_id][nucs] = {}
+      dens_data[mat_id][nucs]['dens'] = openmc.capi.materials[mat_id].densities[inucs]
+
+def process_collapse_1_a():
+    global dens_data
+    global indeces
+    while True:
+      ind = q3.get()
+      try:
+        do_work_1_a(ind)
+      except Exception as e:
+        print(e)
+      finally:
+        q3.task_done()
+
+def do_work_1_a(ind):
+
+    mat_id = indeces[ind][0][0]
+    nucs = indeces[ind][0][1]
+    #print(mat_id)
+    #print(nucs)
+    inucs = nuclides[nucs]
+    
+    #for inucs,nucs in enumerate(openmc.capi.materials[mat_id].nuclides):
+    dens_data[mat_id][nucs] = {}
+    dens_data[mat_id][nucs]['dens'] = openmc.capi.materials[mat_id].densities[inucs]
+    
+def do_work_2(mat_id):
+  shift = fuel_mats[mat_id] * 1500
+
+  for inuc,item in enumerate(DEPLETION_NUCLIDES):
+    res_dict[mat_id][item] = {}
+    dens = dens_data[mat_id][item]['dens']
+    for irx,rx in enumerate(depletion_rx_list):
+      running_sum = 0.
+      xs = nuc_data[item][rx]['xs'] * dens
+      threshold = nuc_data[item][rx]['start_point']
+      end = len(xs)
+      for ielement in range(end):
+        if (threshold == 0):
+          group_xs = 0.
+          ielement = 1
+        else:
+          group_xs = xs[ielement]      
+        running_sum += flux_tally[ielement+threshold+shift-1]*group_xs
    
-   if (rx == '(n,fission)'):
-    rx =  'fission'
-   if (rx == '(n,g)'):
-    rx = '(n,gamma)'
+      if (rx == '(n,fission)'):
+        rx =  'fission'
+      if (rx == '(n,g)'):
+        rx = '(n,gamma)'
    
-   res_dict[mat_id][item][rx] = running_sum
+      res_dict[mat_id][item][rx] = running_sum
 
 def do_work(item):
 
@@ -112,7 +161,7 @@ DEPLETION_NUCLIDES = ['O16', 'O17', 'U234', 'U235', 'U238', 'U236', 'U239', 'U24
 
 comm = MPI.COMM_WORLD
 rank = comm.rank
-
+nuclides = {}
 nuc_data = AutoVivification()
 lock = threading.Lock()
 path_to_xs = '/home/salcedop/groupr_xs/quick_prac/updating_file/smr-prac/dir/'
@@ -120,16 +169,15 @@ cols = ['material','nuclide','score','reaction-rate-MG']
 depletion_rx_list = ['(n,fission)','(n,2n)','(n,3n)','(n,4n)','(n,g)','(n,p)','(n,a)']
 pwd = os.getcwd()
 q = queue.Queue(300)
-q1 = queue.Queue(300)
-for nuc in DEPLETION_NUCLIDES:
+q1 = queue.Queue(100000)
+q2 = queue.Queue(100000)
+for inuc,nuc in enumerate(DEPLETION_NUCLIDES):
   nuc_data[nuc] = {}
+  nuclides[nuc] = inuc
 
 total_groups = 1500
 openmc.capi.init(args=None,intracomm=comm)
-#with openmc.capi.run_in_memory(intracomm=comm):
-#  openmc.capi.run()
-
-numThreads = 15 #int(openmc.capi.os.cpu_count() / comm.size)
+numThreads = 2 #int(openmc.capi.os.cpu_count() / comm.size)
 
 #print(numThreads)
 
@@ -144,37 +192,45 @@ for nuc in DEPLETION_NUCLIDES:
   q.put(nuc)
 q.join()
 
+
+numThreads = 2 #int(openmc.capi.os.cpu_count() / comm.size)
+time_start1 = time.time()
 fuel_mats = get_fuel_mats()
 res_dict = {}
 dens_data = {}
-for mat_id in fuel_mats:
+mat_keys = []
+start_dens = time.time()
+for mat_id,item in fuel_mats.items():
+  res_dict[mat_id] = {}
   dens_data[mat_id] = {}
-  for inucs,nucs in enumerate(openmc.capi.materials[mat_id].nuclides):
-    dens_data[mat_id][nucs] = {}
-    dens_data[mat_id][nucs]['dens'] = openmc.capi.materials[mat_id].densities[inucs]
+  mat_keys.append(mat_id)
 
-time_start = time.time()
+for i in range(numThreads):
+    t = threading.Thread(target=pre_process_dens)
+    t.daemon = True
+    t.start()
+for mat_id,items in fuel_mats.items():
+  q1.put(mat_id)
+q1.join()
+
+end_dens = time.time()
+time_to_dens = end_dens - start_dens
+print("Time to OpenMC: {}".format(time_to_dens))
+start_openmc = time.time()
 openmc.capi.run()
 
 if (rank==0):
-
+  
   flux_tally = openmc.capi.tallies[2].mean
-  for region,mat_id in enumerate(fuel_mats):
-    res_dict[mat_id] = {}
-    shift = region * 1500
-    q1 = queue.Queue(300) 
-    for i in range(numThreads):
-      #t = threading.Thread(target=collapse_from_statepoint,args=(total_groups-1,flux_tally,))
-      t = threading.Thread(target=process_collapse)
-      t.daemon = True
-      t.start()
-      #collapse_from_statepoint(total_groups-1,flux_tally) 
-    for nuc in DEPLETION_NUCLIDES:
-      q1.put(nuc)
-    q1.join()
-
-  time_end = time.time()
+  for i in range(numThreads):
+    t = threading.Thread(target=process_collapse)
+    t.daemon = True
+    t.start()
+  for mat_id,items in fuel_mats.items():
+    q2.put(mat_id)
+  q2.join()
+  end_openmc = time.time()
+  time_to_openmc = end_openmc-start_openmc
   openmc.capi.finalize()
-  simulation_time = time_end - time_start
-  print("Time to OpenMC: {}".format(simulation_time))
-  print(res_dict)
+  print("Time to OpenMC: {}".format(time_to_openmc))
+  #print(res_dict)
