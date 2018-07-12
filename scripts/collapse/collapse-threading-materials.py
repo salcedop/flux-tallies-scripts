@@ -215,7 +215,7 @@ q1.join()
 
 end_dens = time.time()
 time_to_dens = end_dens - start_dens
-print("Time to OpenMC: {}".format(time_to_dens))
+print("Time to density: {}".format(time_to_dens))
 start_openmc = time.time()
 openmc.capi.run()
 

@@ -6,7 +6,6 @@ import time
 import pandas as pd
 import os
 import h5py
-#from openmc.data import atomic_weight, atomic_mass
 from mpi4py import MPI
 
 class AutoVivification(dict):
@@ -29,10 +28,11 @@ def get_fuel_mats():
       fuel_mats.append(key)
   return fuel_mats
 
+
 def prep_data(item):
         nuc_data[item] = {}
         filename = '{}_{}_groupr.hdf5'.format(item,1500)
-        path_to_xs = '/home/salcedop/groupr_xs/quick_prac/updating_file/smr-prac/dir/' + item +'/'+filename 
+        path_to_xs = '/home/salcedop/groupr_xs/quick_prac/updating_file/smr-prac/dir/' + item +'/'+filename
         h5file = h5py.File(path_to_xs,'r')
         group = list(h5file.values())[0]
         for irx,rx in enumerate(depletion_rx_list):
@@ -42,29 +42,29 @@ def prep_data(item):
           nuc_data[item][rx]['start_point'] = igroup.attrs['start_point']
           nuc_data[item][rx]['xs'] = igroup['groupr']
         #h5file.close()
+
 def collapse(item):
+      for inuc,nucs in enumerate(DEPLETION_NUCLIDES):
+        res_dict[item][nucs] = {}
+        dens = dens_data[item][nucs]['dens']
+        for irx,rx in enumerate(depletion_rx_list):
+          running_sum = 0.
+          xs = nuc_data[nucs][rx]['xs'] * dens
+          threshold = nuc_data[nucs][rx]['start_point']
+          end = len(xs)
+          for ielement in range(end):
+            if (threshold == 0):
+              group_xs = 0.
+              ielement = 1
+            else:
+              group_xs = xs[ielement]
+            running_sum += flux_tally[ielement+threshold+shift-1]*group_xs
 
-      res_dict[mat_id][item] = {}
-      dens = dens_data[mat_id][item]['dens']
-      for irx,rx in enumerate(depletion_rx_list):
-        running_sum = 0.
-        xs = nuc_data[item][rx]['xs'] * dens
-        threshold = nuc_data[item][rx]['start_point']
-        end = len(xs)
-        for ielement in range(end):
-          if (threshold == 0):
-            group_xs = 0.
-            ielement = 1
-          else:
-            group_xs = xs[ielement]      
-          running_sum += flux_tally[ielement+threshold+shift-1]*group_xs
-   
-        if (rx == '(n,fission)'):
-          rx =  'fission'
-        if (rx == '(n,g)'):
-          rx = '(n,gamma)'
-        res_dict[mat_id][item][rx] = running_sum
-
+          if (rx == '(n,fission)'):
+            rx =  'fission'
+          if (rx == '(n,g)'):
+            rx = '(n,gamma)'
+          res_dict[item][nucs][rx] = running_sum
 
 DEPLETION_NUCLIDES = ['O16', 'O17', 'U234', 'U235', 'U238', 'U236', 'U239', 'U240', 'Np234', 'Np235', 'Np236', 'Np237', 'Np238', 'Np239', 
 'Pu236', 'Pu237', 'Pu238', 'Pu239', 'Pu240', 'Pu241', 'Pu242', 'B11', 'N14', 'N15', 'Fe57', 'Fe58', 'Co59', 'Ni60', 'Ni61', 'Ni62', 'Cu63', 
@@ -82,64 +82,68 @@ DEPLETION_NUCLIDES = ['O16', 'O17', 'U234', 'U235', 'U238', 'U236', 'U239', 'U24
 'Sm147', 'Nd148', 'Pm148', 'Sm148', 'Pm149', 'Sm149', 'Nd150', 'Sm150', 'Pm151', 'Sm151', 'Eu151', 'Sm152', 'Eu152', 'Gd152', 
 'Sm153', 'Eu153', 'Gd153', 'Sm154', 'Eu154', 'Gd154', 'Eu155', 'Gd155', 'Eu156', 'Gd156', 'Eu157', 'Gd157', 'Gd158', 'Dy158', 'Tb159', 
 'Gd160', 'Tb160', 'Dy160', 'Dy161', 'Dy162', 'Dy163', 'Dy164', 'Er164', 'Ho165', 'Er166', 'Er167', 'Er168', 'Tm168', 'Tm169', 'Er170', 'Tm170']
-
 comm = MPI.COMM_WORLD
 rank = comm.rank
 size = comm.size
-total_groups = 1500
+nuclides = {}
 nuc_data = {} #AutoVivification()
 path_to_xs = '/home/salcedop/groupr_xs/quick_prac/updating_file/smr-prac/dir/'
+cols = ['material','nuclide','score','reaction-rate-MG']
 depletion_rx_list = ['(n,fission)','(n,2n)','(n,3n)','(n,4n)','(n,g)','(n,p)','(n,a)']
 pwd = os.getcwd()
-#DEPLETION_NUCLIDES = ["Er167", "Er168", "Tm168", "Tm169", "Er170", "Tm170"]
 
 for inuc,item in enumerate(DEPLETION_NUCLIDES):
-    if (inuc % size != rank):
-      continue
-    #print("Task number {} ({}) being done by processor {} of {}".format(inuc,item,rank,size-1))
-    
-    prep_data(item)
+  prep_data(item)
 
+total_groups = 1500
 comm.barrier()
 openmc.capi.init(args=None,intracomm=comm)
 
+time_start1 = time.time()
 fuel_mats = get_fuel_mats()
 res_dict = {}
 dens_data = {}
-for mat_id in fuel_mats:
+mat_keys = []
+start_dens = time.time()
+
+for region,mat_id in enumerate(fuel_mats):
+  if (region % size != rank):
+    continue
   dens_data[mat_id] = {}
+  #print("Task number {} ({}) being done by processor {} of {}".format(inuc,item,rank,size-1))
   for inuc,nucs in enumerate(openmc.capi.materials[mat_id].nuclides):
-    #if (inuc % size != rank):
-    #  continue
-    #print("Task number {} ({}) being done by processor {} of {}".format(inuc,item,rank,size-1))
     dens_data[mat_id][nucs] = {}
     dens_data[mat_id][nucs]['dens'] = openmc.capi.materials[mat_id].densities[inuc]
 
-time_start = time.time()
+
+end_dens = time.time()
+time_to_dens = end_dens - start_dens
+#print("Time to process density: {}".format(time_to_dens))
+start_openmc = time.time()
 openmc.capi.run()
 
 if (rank == 0):
   flux_tally = openmc.capi.tallies[2].mean
-  
   comm.Send([flux_tally,MPI.FLOAT],dest=1,tag=13)
 elif (rank==1):
   flux_tally = np.empty(1499*len(fuel_mats),dtype='float')
   comm.Recv([flux_tally,MPI.FLOAT],source=0,tag=13)
 
-#print(type(flux_tally))
-#print(flux_tally[-2])
-#quit()
-for region,mat_id in enumerate(fuel_mats):
-  res_dict[mat_id] = {}
-  shift = region * 1499
-  for inuc,item in enumerate(DEPLETION_NUCLIDES):
-    if (inuc % size != rank):
-      continue
-    #print("Task number {} ({}) being done by processor {} of {}".format(inuc,item,rank,size-1))
-    collapse(item)
+#flux_tally = openmc.capi.tallies[2].mean
 
-time_end = time.time()
+for region,item in enumerate(fuel_mats):
+  if (region % size != rank):
+    continue
+  #print("Task number {} ({}) being done by processor {} of {}".format(region,item,rank,size-1))
+  res_dict[item] = {}
+  shift = region * 1499
+  collapse(item)
+
+#if (rank==0):
+  
+end_openmc = time.time()
+time_to_openmc = end_openmc-start_openmc
 openmc.capi.finalize()
-simulation_time = time_end - time_start
-print("Time to OpenMC: {}".format(simulation_time))
+print("Time to run OpenMC + collapse: {}".format(time_to_openmc))
+#print(res_dict)
 #print(res_dict)
