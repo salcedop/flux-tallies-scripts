@@ -4,6 +4,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <string.h>
+#include <omp.h>
 #define NBIN 100
 void test_vec();
 char* concat(const char *, const char *);
@@ -30,19 +31,21 @@ void test_vec()
      clock_t start, end;
      long NPP=30000000;
      double cpu_time_used;
-     double flux_vec[NBIN] = {0};
-     double xs_vec[NBIN] = {0};
-     double results[NBIN] = {0};
+     long double flux_vec[NBIN] = {0};
+     long double xs_vec[NBIN] = {0};
+     long double results[NBIN] = {0};
      int counter = 0;
      char *path = "/home/salcedop/group_xs?";
      char *tot_string;
      char string[20];
      char data[5] = "data";
+     int factor;
+     double start_omp = omp_get_wtime();
      start = clock();
      
-     for ( int i = 0; i < NPP; i++)
+     for ( long i = 0; i < NPP; i++)
      {
-        int factor = i / NPP * NBIN ;
+        factor = i / NPP * NBIN ;
         if (factor > NBIN) {
           factor = NBIN-1;
          }
@@ -56,7 +59,7 @@ void test_vec()
      for (long j = 0; j < NPP; j++)
      {  
          
-        int factor = j / NPP * NBIN ;
+        factor = j / NPP * NBIN ;
         if (factor > NBIN) {
           factor = NBIN-1;
          }
@@ -73,11 +76,13 @@ void test_vec()
         //remove(tot_string);
         
      }
-
+     double end_omp = omp_get_wtime();
      end = clock();
-
+     double omp_time = (end_omp - start_omp);
+     
      cpu_time_used = (end - start) / CLOCKS_PER_SEC;
 
      printf("loop takes %f seconds to execute \n", cpu_time_used);
+     printf("loop takes %f seconds to execute(omp) \n", omp_time);
 }
       

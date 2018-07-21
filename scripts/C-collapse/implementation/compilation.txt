@@ -1,0 +1,1 @@
+g++ -o collapse.exe -lhdf5 -lhdf5_hl collapse.cpp hdf5_interface.cpp hdf5_interface.h

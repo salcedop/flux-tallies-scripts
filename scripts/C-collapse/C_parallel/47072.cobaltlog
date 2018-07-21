@@ -1,0 +1,25 @@
+Jobid: 47072
+qsub -n 1 -q skylake_8180 -t 100 simple_omp.exe
+Fri Jul 13 14:59:35 2018 +0000 (UTC) submitted with cwd set to: /home/salcedop/flux-tallies-scripts/flux-tallies-scripts/scripts/C-collapse/C_parallel
+jobid 47072 submitted from terminal /dev/pts/53
+Fri Jul 13 14:59:50 2018 +0000 (UTC) 
+Fri Jul 13 14:59:50 2018 +0000 (UTC) Command: '/usr/bin/ssh' 'skylake05' '/usr/libexec/cobalt/cobalt-launcher.py' '--nf' '/var/tmp/cobalt.47072' '--jobid' '47072' '--cwd' '/home/salcedop/flux-tallies-scripts/flux-tallies-scripts/scripts/C-collapse/C_parallel' '--env' 'COBALT_JOBID=47072' '/home/salcedop/flux-tallies-scripts/flux-tallies-scripts/scripts/C-collapse/C_parallel/simple_omp.exe'
+Fri Jul 13 14:59:50 2018 +0000 (UTC) 
+Fri Jul 13 14:59:50 2018 +0000 (UTC) Environment:
+Fri Jul 13 14:59:50 2018 +0000 (UTC) SHELL=/bin/bash
+Fri Jul 13 14:59:50 2018 +0000 (UTC) COBALT_NODEFILE=/tmp/tmp9iuzVF
+Fri Jul 13 14:59:50 2018 +0000 (UTC) COBALT_PARTNAME=skylake05
+Fri Jul 13 14:59:50 2018 +0000 (UTC) COBALT_JOBID=47072
+Fri Jul 13 14:59:50 2018 +0000 (UTC) COBALT_STARTTIME=1531493980
+Fri Jul 13 14:59:50 2018 +0000 (UTC) LOGNAME=salcedop
+Fri Jul 13 14:59:50 2018 +0000 (UTC) USER=salcedop
+Fri Jul 13 14:59:50 2018 +0000 (UTC) COBALT_ENDTIME=1531499980
+Fri Jul 13 14:59:50 2018 +0000 (UTC) COBALT_PARTSIZE=1
+Fri Jul 13 14:59:50 2018 +0000 (UTC) HOME=/home/salcedop
+Fri Jul 13 14:59:50 2018 +0000 (UTC) COBALT_JOBSIZE=1
+Fri Jul 13 14:59:50 2018 +0000 (UTC) 
+Fri Jul 13 14:59:50 2018 +0000 (UTC) Info: stdin received from /dev/null
+Fri Jul 13 14:59:50 2018 +0000 (UTC) Info: stdout sent to /home/salcedop/flux-tallies-scripts/flux-tallies-scripts/scripts/C-collapse/C_parallel/47072.output
+Fri Jul 13 14:59:50 2018 +0000 (UTC) Info: stderr sent to /home/salcedop/flux-tallies-scripts/flux-tallies-scripts/scripts/C-collapse/C_parallel/47072.error
+Fri Jul 13 14:59:50 2018 +0000 (UTC) 
+Fri Jul 13 15:00:01 2018 +0000 (UTC) Info: task completed normally with an exit code of 0; initiating job cleanup and removal

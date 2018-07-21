@@ -100,7 +100,7 @@ for inuc,item in enumerate(DEPLETION_NUCLIDES):
     
     prep_data(item)
 
-comm.barrier()
+#comm.barrier()
 openmc.capi.init(args=None,intracomm=comm)
 
 fuel_mats = get_fuel_mats()
@@ -138,8 +138,8 @@ for region,mat_id in enumerate(fuel_mats):
     #print("Task number {} ({}) being done by processor {} of {}".format(inuc,item,rank,size-1))
     collapse(item)
 
-time_end = time.time()
 openmc.capi.finalize()
+time_end = time.time()
 simulation_time = time_end - time_start
 print("Time to OpenMC: {}".format(simulation_time))
 #print(res_dict)
