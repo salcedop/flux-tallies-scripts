@@ -6,26 +6,40 @@ import re
 import os
 import openmc
 #import openmc.data.njoy
-#import openmc.data.njoy_groupr
+import openmc.data.njoy_groupr
 import numpy as np
 import h5py
 import copy
 import pandas as pd
 import glob
-#from data_nuc import DEPLETION_NUCLIDES,depletion_rx_list,cols,error_cols
+from data_nuc import DEPLETION_NUCLIDES,depletion_rx_list,cols,error_cols
+from xml.etree import ElementTree as ET
+try:
 
+  from openmc.clean_xml import clean_xml_indentation
+  old = True
+except:
+  from openmc._xml import clean_indentation
+  old = False
 
+import matplotlib
+matplotlib.use('TkAgg')
+#matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 class FluxTallies:
 
-
-  def __init__(self,path_to_lib=None,total_groups=500,temperatures=None,background_xs=None,lower_lim=1.e-5,epth_lim=1.,res_lim=950.e+3,upper_lim=2.e+7):
+  def __init__(self,path_to_lib=None,total_groups=500,temperatures=None,background_xs=None,lower_lim=1.e-5,epth_lim=1.,res_lim=950.e+3,upper_lim=2.e+7,nuclide_list=None,score_list=None,tallies_dict=None):
   #check if user specified any directory. If this isn't
   #case, create one in current directory
     if path_to_lib is None:
       self.path_to_lib = Path('MG-lib')
     else:
       self.path_to_lib = Path(path_to_lib)
+    if nuclide_list is None:
+      nuclide_list = ['U238']
+    if score_list is None:
+      score_list = ['(n,gamma)']
     
     self.total_groups = total_groups
     self.lower_lim = lower_lim
@@ -34,6 +48,9 @@ class FluxTallies:
     self.upper_lim = upper_lim
     self.temperatures = temperatures
     self.background_xs = background_xs
+    self.nuclide_list = nuclide_list
+    self.score_list = score_list
+    self.tallies_dict = tallies_dict
 
   @property
   def total_groups(self):
@@ -66,6 +83,16 @@ class FluxTallies:
   @property
   def path_to_lib(self):
 	  return self._path_to_lib
+  @property
+  def nuclide_list(self):
+    return self._nuclide_list
+
+  @property
+  def score_list(self):
+    return self._score_list
+  @property
+  def tallies_dict(self):
+    return self._tallies_dict
 
   @total_groups.setter
   def total_groups(self,total_groups):
@@ -95,6 +122,18 @@ class FluxTallies:
   def background_xs(self,background_xs):
     self._background_xs = background_xs
   
+  @nuclide_list.setter
+  def nuclide_list(self,nuclide_list):
+    self._nuclide_list = nuclide_list 
+
+  @score_list.setter
+  def score_list(self,score_list):
+    self._score_list = score_list
+  
+  @tallies_dict.setter
+  def tallies_dict(self,tallies_dict):
+    self._tallies_dict = tallies_dict
+ 
   @path_to_lib.setter
   def path_to_lib(self,path_to_lib):
     self._path_to_lib = Path(path_to_lib)
@@ -120,26 +159,151 @@ class FluxTallies:
       urllib.request.urlretrieve(url,'tape20')
       os.chdir('..')
 
-  def gen_energy_struc(self):
- 
-  
-    resolve_groups = int(self.total_groups * 0.7)
-    thermal_fast_groups = int((self.total_groups - resolve_groups)/2)
-    #Need to specify a small shift to separate the end-point of the thermal_struc
-    #and the beginning of the resolve_struc. Otherwise, NJOY will complain that the structure
-    #is 'out-of order' because it doesn't increase monotonically. 
-    #the same issue is addressed for the resolve_struc and the fast_struc.
-    cutoff_shift = 1.e-1 #eV
-    thermal_struc = np.logspace(np.log10(self.lower_lim),np.log10(self.epth_lim),thermal_fast_groups)
-    resolve_struc = np.logspace(np.log10(self.epth_lim+cutoff_shift),np.log10(self.res_lim),resolve_groups)
-    fast_struc = np.logspace(np.log10(self.res_lim+cutoff_shift),np.log10(self.upper_lim),thermal_fast_groups)
-  
-    group_struc = np.concatenate((thermal_struc,resolve_struc),axis=0)
-    group_struc = np.concatenate((group_struc,fast_struc),axis=0)
- 
-    return group_struc
+  def SHEM_struc(self):
 
-  def run_njoy_arbitrary_struc(self):
+    SHEM_lib = h5py.File('SHEM361.hdf5','r') 
+    energy_bounds = SHEM_lib["energy_bounds"].value.flatten()
+
+    return energy_bounds
+
+  def gen_energy_struc(self,bps_matrix,SHEM361_only=False):
+    
+   len_matrix = len(bps_matrix)
+   shem_lib = self.SHEM_struc()
+   if (SHEM361_only == False):
+    for i in range(1,len_matrix):
+      if (i == 1):
+        group_struc_accumulate = np.logspace(np.log10(bps_matrix[i-1,0]),np.log10(bps_matrix[i,0]),int(bps_matrix[i,1]))
+      
+      else:    
+        #cutoff_shift = 1.e-1
+        #print("group_accumulate: "+str(len(group_struc_accumulate)))
+        current_struct = np.logspace(np.log10(bps_matrix[i-1,0]),np.log10(bps_matrix[i,0]),int(bps_matrix[i,1]))
+       # print("current_struct: "+str(len(current_struct)))
+        group_struc_accumulate = np.concatenate((group_struc_accumulate,current_struct[1:]),axis=0)
+    #print(len(group_struc_accumulate))
+                                                                                 
+    #group_struc_accumulate = np.concatenate((group_struc_accumulate,shem_lib[8:362]),axis=0)
+    group_struc_accumulate = sorted(group_struc_accumulate) 
+    print(len(group_struc_accumulate))
+   else:
+    group_struc_accumulate = sorted(shem_lib)
+ 
+   '''
+   SHEM_lib = h5py.File('SHEM361.h5','r') 
+   energy_bounds = SHEM_lib["energy_bounds"].value
+   group_struc_accumulate = np.concatenate((group_struc_accumulate,energy_bounds[0,:]),axis=0)
+   group_struc_accumulate = sorted(group_struc_accumulate)
+   print(group_struc_accumulate)
+   '''
+   '''
+   #resolve_groups = int(self.total_groups * 0.4) 
+   thermal_fast_groups = 300#int(self.total_groups * 0.1)
+   resolve_groups = 500
+   fast_groups = 1200#int(self.total_groups * 0.5)
+   #int((self.total_groups - resolve_groups)/2)
+   #Need to specify a small shift to separate the end-point of the thermal_struc
+   #and the beginning of the resolve_struc. Otherwise, NJOY will complain that the structure
+   #is 'out-of order' because it doesn't increase monotonically. 
+   #the same issue is addressed for the resolve_struc and the fast_struc.
+   cutoff_shift = 1.e-1 #eV
+   thermal_struc = np.logspace(np.log10(self.lower_lim),np.log10(self.epth_lim),thermal_fast_groups)
+   resolve_struc = np.logspace(np.log10(self.epth_lim+cutoff_shift),np.log10(self.res_lim),resolve_groups)
+   fast_struc = np.logspace(np.log10(self.res_lim+cutoff_shift),np.log10(self.upper_lim),fast_groups)
+  
+   group_struc = np.concatenate((thermal_struc,resolve_struc),axis=0)
+   group_struc = np.concatenate((group_struc,fast_struc),axis=0)
+   '''
+   return (group_struc_accumulate)
+
+  def plot_xs(self,bps_matrix,SHEM361_only=False):
+
+    #results_file = open('minimum_threshold.txt','w')
+    mydir = os.getcwd()
+    rx_list = {}
+    mt_list = ['(n,p)','(n,a)']
+    for imt in mt_list:
+      rx_list[imt] = list()
+    txt = 'nuclide,rxn,minimum_energy\n'
+    DEPLETION_NUCLIDES = ["As74"]
+    for irx in mt_list:
+          plt.figure()
+          labels = []
+          for nuc in DEPLETION_NUCLIDES:
+            dire = mydir + '/' + nuc
+            #dire = "/home/salcedop/library-nuclide-bins-2500-groups-422-nucs-fission/"+nuc#'/home/salcedop/library-nuclide-2500-
+            os.chdir(dire)
+            h5file = h5py.File('{}.h5'.format(nuc),'r')
+            group = list(h5file.values())[0]
+            group_nuc = group['reactions/'+irx]
+            arr = group_nuc['groupr'].value
+            len_arr = len(arr[:,1])
+            g_struc = self.gen_energy_struc(bps_matrix,SHEM361_only)
+            energies = g_struc[self.total_groups-len_arr:]
+            plt.loglog(energies,arr[:,1])
+            labels.append('{}-{}'.format(nuc,irx))
+            #except:
+            # continue
+          plt.xlabel('Energy (eV)')
+          plt.ylabel('Cross sections (b)')
+          #plt.title('107 and levels for Gd154')
+          plt.title('{}, {}-MG versus energy'.format(nuc,str(irx)))
+          plt.legend(labels,ncol=9,loc='lower left',prop={'size':5})
+          plt.show()
+
+
+  def generate_tallies_xml(self,filename_string,bps_matrix,SHEM361_only=False):
+
+    tree = ET.parse(filename_string)
+    root = tree.getroot()
+    mat_filter = root[0][0].text
+    energy_filter = self.gen_energy_struc(bps_matrix,SHEM361_only)
+
+    new_data = ET.Element('tallies')
+
+    attrib_mat = {'id':'1', 'type':'material'}
+    attrib_energy = {'id':'2', 'type':'energy'}
+    empty_attrib = {}
+
+    filter_mat = ET.SubElement(new_data,'filter',attrib_mat)
+    filter_ene = ET.SubElement(new_data,'filter',attrib_energy)
+    ET.SubElement(filter_mat,'bins',empty_attrib)
+    ET.SubElement(filter_ene,'bins',empty_attrib)
+    new_data[0][0].text = mat_filter
+    new_data[1][0].text = ' '.join(str(i) for i in energy_filter)
+    for key,value in enumerate(self.tallies_dict.items()):
+      tally_id = value[1]['id']
+      tally_name = value[1]['name']
+      attrib_tallies = {'id':tally_id,'name':tally_name}
+      tally_level = ET.SubElement(new_data,'tally',attrib_tallies)
+
+      ET.SubElement(tally_level,'filters',empty_attrib)
+      if (value[1]['nuclides'] != ''):
+         ET.SubElement(tally_level,'nuclides',empty_attrib)
+      ET.SubElement(tally_level,'scores',empty_attrib)
+
+      last_index = 1
+      filter_list = value[1]['filter']
+      score_list = value[1]['scores']
+      new_data[key+2][0].text = ' '.join(i for i in filter_list)
+      
+      if (value[1]['nuclides'] != ''):
+        nuclide_list = value[1]['nuclides']
+        new_data[key+2][1].text = ' '.join(nuc for nuc in nuclide_list)
+        last_index = 2
+      new_data[key+2][last_index].text = ' '.join(i for i in score_list)
+
+    if (old is True):
+      clean_xml_indentation(new_data)
+    else:
+      clean_indentation(new_data)
+
+    tree = ET.ElementTree(new_data)
+    os.rename(filename_string,'tallies-original.xml')
+    tree.write('./tallies.xml', xml_declaration=True,
+                   encoding='utf-8', method="xml")
+                                                     
+  def run_njoy_arbitrary_struc(self,bps_matrix,SHEM361_only=False):
 
     filename = './tape20'
     temperatures = self.temperatures
@@ -157,7 +321,13 @@ class FluxTallies:
     one_over_e=False
     
 
-    group_struc = self.gen_energy_struc()
+    group_struc = self.gen_energy_struc(bps_matrix,SHEM361_only)
+    ''' 
+    plt.figure()
+    plt.plot(group_struc)
+    plt.show()
+    quit()
+    '''
     #In this implementation we are selecting to enter a group-structure to NJOY
     #the structure is organize into 5 columns. 'energy_update' will contain that text.
     #'format_counter' helps organize the group-structure into 5 columns when 
@@ -197,14 +367,17 @@ class FluxTallies:
 
   def parse_groupr(self): 
     key2='for'
-    key3 = 'dilution'
-    key4 = 'group'
-    depletion_rx_list = ['(n,p)','(n,a)','(n,gamma)','(n,fission)','(n,2n)','(n,3n)','(n,4n)']
+    key3 = 'dilution\n \n'
+    key4 = '\n \n'
+    depletion_rx_list = ['(n,p)','(n,a)','(n,g)','(n,fission)','(n,2n)','(n,3n)','(n,4n)']
     for nuc in DEPLETION_NUCLIDES:
       directory = str(self.path_to_lib) + '/'+ nuc
       os.chdir(directory)
       njoy_file = open('njoy_output_groupr_{}'.format(self.total_groups),'r').read()
-      f = h5py.File('{}_{}_groupr.hdf5'.format(nuc,self.total_groups),'w')
+      h5name = '{}_{}_groupr.hdf5'.format(nuc,self.total_groups)
+      if os.path.isfile(h5name):
+        os.remove(h5name)
+      f = h5py.File(h5name,'w')
       rxs_group = f.create_group(nuc+'/reactions')
       for rxn in depletion_rx_list:
         key1=rxn
@@ -223,34 +396,38 @@ class FluxTallies:
           #its xs value and so on. So really, all even elements will be indexes, while all 
           #odd elements will correspond to xs values (remember: pyhton slicing starts at 0). 
           start_point = int(parse3[0])
-          print(start_point)
           len_xs = int((len(parse3)/2))
-          dummy_array = np.zeros(len_xs)
+          dummy_array = np.zeros((len_xs,2))
           for j in range(len_xs):
             index = 2*j + 1
+            index_even = j*2
             #one of the issues with parsing the NJOY output file is that
             #the xs values have the following format '1.5294-9' instead of '1.5294e-9'
             #therefore, before saving the xs values in the *h5 file we need to write it correctly. 
             try:
+              #print(start_point)
               xs_val=parse3[index].split('+')
-              dummy_array[j] = float(xs_val[0]+'e+'+xs_val[-1])
+              print(parse3[index_even])
+              dummy_array[j,0] = float(parse3[index_even])
+              dummy_array[j,1] = float(xs_val[0]+'e+'+xs_val[-1])
             except:
               xs_val=parse3[index].split('-')
-              dummy_array[j] = float(xs_val[0]+'e-'+xs_val[-1])
+              dummy_array[j,0] = float(parse3[index_even])
+              dummy_array[j,1] = float(xs_val[0]+'e-'+xs_val[-1])
 
         except:
           start_point = 0
-          dummy_array = np.zeros(1)
+          dummy_array = np.zeros((1,1))
       
         #matching OpenMC score strings. Unfortunely instead of
         #'fission' NJOY uses '(n,fission)' and instead '(n,gamma)'
         #NJOY uses '(n,g)'
-        '''
-        if (rxn == '(n,fission)'):
-          rxn =  'fission'
+        
+        #if (rxn == '(n,fission)'):
+        #  rxn =  'fission'
         if (rxn == '(n,g)'):
           rxn = '(n,gamma)'
-        '''
+        
         irxs_group = rxs_group.create_group('{}'.format(rxn))
         irxs_group.create_dataset('groupr',data=dummy_array)
         irxs_group.attrs['start_point'] = start_point

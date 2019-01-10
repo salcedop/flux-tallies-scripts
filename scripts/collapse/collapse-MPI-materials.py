@@ -31,7 +31,7 @@ def get_fuel_mats():
 
 def prep_data(item):
         nuc_data[item] = {}
-        filename = '{}_{}_groupr.hdf5'.format(item,1500)
+        filename = '{}.h5'.format(item,1500)
         path_to_xs = '/home/salcedop/groupr_xs/quick_prac/updating_file/smr-prac/dir/' + item +'/'+filename
         h5file = h5py.File(path_to_xs,'r')
         group = list(h5file.values())[0]
@@ -99,6 +99,9 @@ total_groups = 1500
 comm.barrier()
 openmc.capi.init(args=None,intracomm=comm)
 
+openmc.capi.run()
+
+
 time_start1 = time.time()
 fuel_mats = get_fuel_mats()
 res_dict = {}
@@ -115,7 +118,6 @@ for region,mat_id in enumerate(fuel_mats):
     dens_data[mat_id][nucs] = {}
     dens_data[mat_id][nucs]['dens'] = openmc.capi.materials[mat_id].densities[inuc]
 
-
 end_dens = time.time()
 time_to_dens = end_dens - start_dens
 #print("Time to process density: {}".format(time_to_dens))
@@ -131,6 +133,8 @@ elif (rank==1):
 
 #flux_tally = openmc.capi.tallies[2].mean
 
+#comm.barrier()  
+openmc.capi.finalize()
 for region,item in enumerate(fuel_mats):
   if (region % size != rank):
     continue
@@ -139,11 +143,10 @@ for region,item in enumerate(fuel_mats):
   shift = region * 1499
   collapse(item)
 
+print(len(res_dict))
 #if (rank==0):
-  
 end_openmc = time.time()
 time_to_openmc = end_openmc-start_openmc
-openmc.capi.finalize()
 print("Time to run OpenMC + collapse: {}".format(time_to_openmc))
 #print(res_dict)
 #print(res_dict)
