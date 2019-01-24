@@ -370,6 +370,7 @@ class FluxTallies:
     key3 = 'dilution\n \n'
     key4 = '\n \n'
     depletion_rx_list = ['(n,p)','(n,a)','(n,g)','(n,fission)','(n,2n)','(n,3n)','(n,4n)']
+    
     for nuc in DEPLETION_NUCLIDES:
       directory = str(self.path_to_lib) + '/'+ nuc
       os.chdir(directory)
@@ -397,28 +398,29 @@ class FluxTallies:
           #odd elements will correspond to xs values (remember: pyhton slicing starts at 0). 
           start_point = int(parse3[0])
           len_xs = int((len(parse3)/2))
-          dummy_array = np.zeros((len_xs,2))
+          dummy_array = np.zeros((self.total_groups-1))
           for j in range(len_xs):
             index = 2*j + 1
-            index_even = j*2
+            index_even = int(parse3[index - 1])
+            #print(index_even)
             #one of the issues with parsing the NJOY output file is that
             #the xs values have the following format '1.5294-9' instead of '1.5294e-9'
             #therefore, before saving the xs values in the *h5 file we need to write it correctly. 
             try:
               #print(start_point)
               xs_val=parse3[index].split('+')
-              print(parse3[index_even])
-              dummy_array[j,0] = float(parse3[index_even])
-              dummy_array[j,1] = float(xs_val[0]+'e+'+xs_val[-1])
+              #print(parse3[index_even])
+              #dummy_array[j,0] = float(parse3[index_even])
+              dummy_array[index_even-1] = float(xs_val[0]+'e+'+xs_val[-1])
             except:
               xs_val=parse3[index].split('-')
-              dummy_array[j,0] = float(parse3[index_even])
-              dummy_array[j,1] = float(xs_val[0]+'e-'+xs_val[-1])
-
+              #dummy_array[j,0] = float(parse3[index_even])
+              dummy_array[index_even-1] = float(xs_val[0]+'e-'+xs_val[-1])
+ 
         except:
           start_point = 0
-          dummy_array = np.zeros((1,1))
-      
+          dummy_array = np.zeros((1))
+        
         #matching OpenMC score strings. Unfortunely instead of
         #'fission' NJOY uses '(n,fission)' and instead '(n,gamma)'
         #NJOY uses '(n,g)'
