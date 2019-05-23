@@ -12,8 +12,11 @@ import h5py
 import copy
 import pandas as pd
 import glob
-from data_nuc import DEPLETION_NUCLIDES,depletion_rx_list,cols,error_cols
+from data_nuc import DEPLETION_NUCLIDES,depletion_rx_list,def_300group_struc
 from xml.etree import ElementTree as ET
+
+DEPLETION_NUCLIDES = ['H1', 'H2', 'H3','Na23']
+
 try:
 
   from openmc.clean_xml import clean_xml_indentation
@@ -22,25 +25,29 @@ except:
   from openmc._xml import clean_indentation
   old = False
 
-import matplotlib
-matplotlib.use('TkAgg')
-#matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-
+#in case user decides to set another directory
+original_dir = os.getcwd()
 class FluxTallies:
+  """This class handles the logic of fluxtallies within OpenMC..
 
+  """
   def __init__(self,path_to_lib=None,total_groups=500,temperatures=None,background_xs=None,lower_lim=1.e-5,epth_lim=1.,res_lim=950.e+3,upper_lim=2.e+7,nuclide_list=None,score_list=None,tallies_dict=None):
-  #check if user specified any directory. If this isn't
-  #case, create one in current directory
+    
     if path_to_lib is None:
-      self.path_to_lib = Path('MG-lib')
+      working_dir = original_dir
     else:
-      self.path_to_lib = Path(path_to_lib)
+      working_dir = path_to_lib
+
+    self.path_to_lib = Path(working_dir)
+    #if not os.path.isdir(self.path_to_lib):
+  	#  self.path_to_lib.mkdir()
+    #os.chdir(working_dir)
     if nuclide_list is None:
       nuclide_list = ['U238']
     if score_list is None:
       score_list = ['(n,gamma)']
-    
+
+    #self.path_to_lib = Path('MG-lib')  
     self.total_groups = total_groups
     self.lower_lim = lower_lim
     self.epth_lim = epth_lim
@@ -136,131 +143,121 @@ class FluxTallies:
  
   @path_to_lib.setter
   def path_to_lib(self,path_to_lib):
-    self._path_to_lib = Path(path_to_lib)
+    os.chdir(original_dir)
+    self._path_to_lib = Path(path_to_lib) 
     if not os.path.isdir(self._path_to_lib):
   	  self._path_to_lib.mkdir()
-  
+    os.chdir(self._path_to_lib)
+    
   def download_endf(self):
-
+    """This method downloads endf files
+       for all nuclides on the DEPLETION_NUCLIDES
+       string.
+    """
     for nuc in DEPLETION_NUCLIDES:
-      directory = str(self.path_to_lib)+'/'+nuc
+      print(os.getcwd())
+      directory = nuc
       if not os.path.isdir(directory):
         os.mkdir(directory)
       os.chdir(directory) 
       #establishing 'regular-expression' (RE) to split isotope string.
       #for example 'U238' would be split into 'U' and '238'. This is necessary
       #to write the url we have to use to download the ENDFB-VII files.
-      pattern= re.compile("([a-zA-Z]+)([0-9]+)")
-      components = pattern.match(nuc)
-      isotope_name = components.group(1)
-      isotope_A = components.group(2)
+      #check if the string splits to verify 
+
+      temp_len = len(nuc.split("_"))
+      #to identified excited state nuclides (i.e., "_m1")
+      if (temp_len == 2):
+        pattern = re.compile("([a-zA-Z]+)([0-9]+)([_]+)([a-z0-9]+)")
+        components = pattern.match(nuc)
+        isotope_name = components.group(1)
+        isotope_A = components.group(2) + components.group(4)
+      #to indentify regular nuclides
+      elif (temp_len == 1):
+        pattern= re.compile("([a-zA-Z]+)([0-9]+)")
+        components = pattern.match(nuc)
+        isotope_name = components.group(1)
+        isotope_A = components.group(2)
+        
+      else:
+        raise ValueError("{} not in valid string format".format(nuc))
+
       url = 'https://t2.lanl.gov/nis/data/data/ENDFB-VII.1-neutron/{}/{}'.format(isotope_name,isotope_A)  
       #calling it 'tape20' to make automation across all nuclides easier.
+      print(url)
       urllib.request.urlretrieve(url,'tape20')
       os.chdir('..')
 
-  def SHEM_struc(self):
+  def gen_energy_struc(self,bps_matrix,default_group_struc=False):
+    """Generate energy structure based on inputs
 
-    SHEM_lib = h5py.File('SHEM361.hdf5','r') 
-    energy_bounds = SHEM_lib["energy_bounds"].value.flatten()
-
-    return energy_bounds
-
-  def gen_energy_struc(self,bps_matrix,SHEM361_only=False):
-    
-   len_matrix = len(bps_matrix)
-   shem_lib = self.SHEM_struc()
-   if (SHEM361_only == False):
-    for i in range(1,len_matrix):
-      if (i == 1):
-        group_struc_accumulate = np.logspace(np.log10(bps_matrix[i-1,0]),np.log10(bps_matrix[i,0]),int(bps_matrix[i,1]))
-      
-      else:    
-        #cutoff_shift = 1.e-1
-        #print("group_accumulate: "+str(len(group_struc_accumulate)))
-        current_struct = np.logspace(np.log10(bps_matrix[i-1,0]),np.log10(bps_matrix[i,0]),int(bps_matrix[i,1]))
-       # print("current_struct: "+str(len(current_struct)))
-        group_struc_accumulate = np.concatenate((group_struc_accumulate,current_struct[1:]),axis=0)
-    #print(len(group_struc_accumulate))
-                                                                                 
-    #group_struc_accumulate = np.concatenate((group_struc_accumulate,shem_lib[8:362]),axis=0)
-    group_struc_accumulate = sorted(group_struc_accumulate) 
-    print(len(group_struc_accumulate))
-   else:
-    group_struc_accumulate = sorted(shem_lib)
+        Parameters
+        ----------
+            .
+        bps_matrix : numpy.float.matrix
+            matrix of points that make up the group structures along with the 
+            number of total
  
-   '''
-   SHEM_lib = h5py.File('SHEM361.h5','r') 
-   energy_bounds = SHEM_lib["energy_bounds"].value
-   group_struc_accumulate = np.concatenate((group_struc_accumulate,energy_bounds[0,:]),axis=0)
-   group_struc_accumulate = sorted(group_struc_accumulate)
-   print(group_struc_accumulate)
-   '''
-   '''
-   #resolve_groups = int(self.total_groups * 0.4) 
-   thermal_fast_groups = 300#int(self.total_groups * 0.1)
-   resolve_groups = 500
-   fast_groups = 1200#int(self.total_groups * 0.5)
-   #int((self.total_groups - resolve_groups)/2)
-   #Need to specify a small shift to separate the end-point of the thermal_struc
-   #and the beginning of the resolve_struc. Otherwise, NJOY will complain that the structure
-   #is 'out-of order' because it doesn't increase monotonically. 
-   #the same issue is addressed for the resolve_struc and the fast_struc.
-   cutoff_shift = 1.e-1 #eV
-   thermal_struc = np.logspace(np.log10(self.lower_lim),np.log10(self.epth_lim),thermal_fast_groups)
-   resolve_struc = np.logspace(np.log10(self.epth_lim+cutoff_shift),np.log10(self.res_lim),resolve_groups)
-   fast_struc = np.logspace(np.log10(self.res_lim+cutoff_shift),np.log10(self.upper_lim),fast_groups)
-  
-   group_struc = np.concatenate((thermal_struc,resolve_struc),axis=0)
-   group_struc = np.concatenate((group_struc,fast_struc),axis=0)
-   '''
-   return (group_struc_accumulate)
+        default_group_struc : bool
+            user can either select a built-in 300 group
+            structure, which includes more groups in the high energy range
+            above 1 MeV, or they can input their own structure.
 
-  def plot_xs(self,bps_matrix,SHEM361_only=False):
+        Returns
+        ------
+        group_struc_accumulate : energy group structure.
 
-    #results_file = open('minimum_threshold.txt','w')
-    mydir = os.getcwd()
-    rx_list = {}
-    mt_list = ['(n,p)','(n,a)']
-    for imt in mt_list:
-      rx_list[imt] = list()
-    txt = 'nuclide,rxn,minimum_energy\n'
-    DEPLETION_NUCLIDES = ["As74"]
-    for irx in mt_list:
-          plt.figure()
-          labels = []
-          for nuc in DEPLETION_NUCLIDES:
-            dire = mydir + '/' + nuc
-            #dire = "/home/salcedop/library-nuclide-bins-2500-groups-422-nucs-fission/"+nuc#'/home/salcedop/library-nuclide-2500-
-            os.chdir(dire)
-            h5file = h5py.File('{}.h5'.format(nuc),'r')
-            group = list(h5file.values())[0]
-            group_nuc = group['reactions/'+irx]
-            arr = group_nuc['groupr'].value
-            len_arr = len(arr[:,1])
-            g_struc = self.gen_energy_struc(bps_matrix,SHEM361_only)
-            energies = g_struc[self.total_groups-len_arr:]
-            plt.loglog(energies,arr[:,1])
-            labels.append('{}-{}'.format(nuc,irx))
-            #except:
-            # continue
-          plt.xlabel('Energy (eV)')
-          plt.ylabel('Cross sections (b)')
-          #plt.title('107 and levels for Gd154')
-          plt.title('{}, {}-MG versus energy'.format(nuc,str(irx)))
-          plt.legend(labels,ncol=9,loc='lower left',prop={'size':5})
-          plt.show()
+    """ 
+    len_matrix = len(bps_matrix)
+    if (default_group_struc):
+        group_struc_accumulate = sorted(def_300group_struc)
+    else: 
+        for i in range(1,len_matrix):
+            if (i == 1):
+                group_struc_accumulate = np.logspace(np.log10(bps_matrix[i-1,0]),np.log10(bps_matrix[i,0]),int(bps_matrix[i,1]))
+      
+            else:    
+                current_struct = np.logspace(np.log10(bps_matrix[i-1,0]),np.log10(bps_matrix[i,0]),int(bps_matrix[i,1]))
+                # print("current_struct: "+str(len(current_struct)))
+                group_struc_accumulate = np.concatenate((group_struc_accumulate,current_struct[1:]),axis=0)
+                #print(len(group_struc_accumulate))
+                #group_struc_accumulate = np.concatenate((group_struc_accumulate,shem_lib[8:362]),axis=0)
+        group_struc_accumulate = sorted(group_struc_accumulate) 
+        
+    return (group_struc_accumulate)
 
+  def generate_tallies_xml(self,filename_string,bps_matrix,default_group_struc=False):
+    """Generate tallies.xml with hybrid tallies by using the energy group structure
+       as a filter together with the material filter of an original tallies.xml.
 
-  def generate_tallies_xml(self,filename_string,bps_matrix,SHEM361_only=False):
+        Parameters
+        ----------
+        filename_string : string
+            string with the path to a tallies.xml file that contains
+            the reaction rate tally of a given geometry. This method will
+            expand on this by adding the extra flux tally method and by 
+            reducing the number of scores in the original reaction-rate tally
+            from 7 to 2.
+        bps_matrix : numpy.float.matrix
+            Two-column matrix of points where the first column corresponds to the points that
+            define the groups while the second one corresponds to the number of groups of that 
+            given interval.
+        SHEM361_only : bool
+            In case the user wants to use only the SHEM361 library.
+
+    """
+    #reads a tallies.xml file with a reaction rate tally and uses the 
+    #material filter to build a new tallies.xml with hybrid tallies using
+    #the energy filter.  
 
     tree = ET.parse(filename_string)
     root = tree.getroot()
     mat_filter = root[0][0].text
-    energy_filter = self.gen_energy_struc(bps_matrix,SHEM361_only)
+    energy_filter = self.gen_energy_struc(bps_matrix,default_group_struc)
 
     new_data = ET.Element('tallies')
 
+    #attributes for hybrid tally.
     attrib_mat = {'id':'1', 'type':'material'}
     attrib_energy = {'id':'2', 'type':'energy'}
     empty_attrib = {}
@@ -269,8 +266,11 @@ class FluxTallies:
     filter_ene = ET.SubElement(new_data,'filter',attrib_energy)
     ET.SubElement(filter_mat,'bins',empty_attrib)
     ET.SubElement(filter_ene,'bins',empty_attrib)
+    
     new_data[0][0].text = mat_filter
     new_data[1][0].text = ' '.join(str(i) for i in energy_filter)
+
+    #writing '<tally>' object
     for key,value in enumerate(self.tallies_dict.items()):
       tally_id = value[1]['id']
       tally_name = value[1]['name']
@@ -278,13 +278,18 @@ class FluxTallies:
       tally_level = ET.SubElement(new_data,'tally',attrib_tallies)
 
       ET.SubElement(tally_level,'filters',empty_attrib)
+      
       if (value[1]['nuclides'] != ''):
-         ET.SubElement(tally_level,'nuclides',empty_attrib)
+          ET.SubElement(tally_level,'nuclides',empty_attrib)
       ET.SubElement(tally_level,'scores',empty_attrib)
-
+      #last_index could be either a 1 or a 2, depending on
+      #whether we are doing a reaction rate tally (i.e, last_index=1) or
+      #a flux tally (i.e., last_index = 2)
       last_index = 1
       filter_list = value[1]['filter']
       score_list = value[1]['scores']
+      #offset by '2' indicates we are writing the tally objects below
+      #the material and energy filters
       new_data[key+2][0].text = ' '.join(i for i in filter_list)
       
       if (value[1]['nuclides'] != ''):
@@ -297,14 +302,27 @@ class FluxTallies:
       clean_xml_indentation(new_data)
     else:
       clean_indentation(new_data)
-
+    #renaming original 'tallies.xml' to 'tallies-original.xml'
+    #to distinguish it from  the new hybrid 'tally.xml' file.
     tree = ET.ElementTree(new_data)
-    os.rename(filename_string,'tallies-original.xml')
-    tree.write('./tallies.xml', xml_declaration=True,
+    #os.rename(filename_string,'tallies-original.xml')
+    tree.write('./tallies-hybrid-tally.xml', xml_declaration=True,
                    encoding='utf-8', method="xml")
                                                      
-  def run_njoy_arbitrary_struc(self,bps_matrix,SHEM361_only=False):
+  def run_njoy_arbitrary_struc(self,bps_matrix,default_group_struc=False):
 
+    """Run NJOY using the input structure.
+
+        Parameters
+        ----------
+        bps_matrix : numpy.float.matrix
+            Two-column matrix of points where the first column corresponds to the points that
+            define the groups while the second one corresponds to the number of groups of that 
+            given interval.
+        SHEM361_only : bool
+            In case the user wants to use only the SHEM361 library.
+
+    """
     filename = './tape20'
     temperatures = self.temperatures
     background_xs = self.background_xs
@@ -312,37 +330,43 @@ class FluxTallies:
     xsdir='./xs_info'
     moder=True
     unresr=True
-    stdout=True
-    save_files=True
+    
     groupr=True
+    #these are false when using GROUPR
     purr=False
     acer=False
- 
+    #this is 
+    #one_over_e : bool, optional
+    #Thus far, when running GROUPR we have to provide an arbitrary group structure.
+    #Howerer, NJOY also needs a weight-function to compute the group cross-sections.
+    #If this variable is true then NJOY will use the following weight-function: 1/E + maxwellian +  
+    # fission spectrum. By default, a flat weight-function is selected. 
+    #This option works well for fine-group structure like the ones that will be needed when doing flux-tallies. 
     one_over_e=False
-    
+    #'stdout' will print the NJOY output to the screen.. 
+    # Always good for debugging. 'save_files' will tell the python API
+    # to save a text file with the results so that it can get parsed later on. 
+    stdout=True
+    save_files=True
+   
+    #generating group structure.
+    group_struc = self.gen_energy_struc(bps_matrix,default_group_struc)
 
-    group_struc = self.gen_energy_struc(bps_matrix,SHEM361_only)
-    ''' 
-    plt.figure()
-    plt.plot(group_struc)
-    plt.show()
-    quit()
-    '''
     #In this implementation we are selecting to enter a group-structure to NJOY
-    #the structure is organize into 5 columns. 'energy_update' will contain that text.
+    #the structure is organize into 5 columns. 'energy_update' will contain the text.
     #'format_counter' helps organize the group-structure into 5 columns when 
     #writing the njoy input. This improves the aesthetics of the NJOY input and prevents 
 	  #NJOY from crashing due to any problem when reading the structure. 
     #As soon as it gets to five, we reset 'format_counter'
     #to 0 and start counting again. 'total_counter' keeps going until we hit
     #the last element in the loop, which is important because 
-    #The last line needs to be treated differently (no space character after the upper limit,
+    #The last line needs to be treated differently (there can't be white space after the upper limit,
     #which is 20 MeV in the default case).
 
     energy_text_input=''
     format_counter = 0
     total_counter = 0
- 
+    
     for energy in group_struc:
       format_counter += 1
       total_counter += 1
@@ -355,32 +379,40 @@ class FluxTallies:
       else:
         extra = ' '
       energy_text_input += str(energy) + extra
+    #looping over all nuclides. 
     for nuc in DEPLETION_NUCLIDES:
-      directory = str(self.path_to_lib)+'/'+nuc
+      directory = nuc
       os.chdir(directory)
-
-      openmc.data.njoy_groupr.make_xs(filename,temperatures=self.temperatures,background_xs=self.background_xs,
+      #when running GROUPR, you must specify the total number of groups minus 1.
+      openmc.data.njoy_groupr.make_xs(filename,lorde=1,temperatures=self.temperatures,background_xs=self.background_xs,
                                     group_struct=energy_text_input,num_groups=self.total_groups-1,ace=ace,xsdir=xsdir,moder=moder,
                                     unresr=unresr,purr=purr,groupr=groupr,acer=acer,stdout=stdout,one_over_e=one_over_e)
    
       os.chdir('..')
 
   def parse_groupr(self): 
+    """Parse NJOY results.
+    """
+    #establishing keys to parse njoy output files.
+    #key1 varies from '(n,fission)','(n,p)','(n,a)','(n,g)' and '(n,xn)'
+    #where x can be 2,3 and 4.
     key2='for'
     key3 = 'dilution\n \n'
     key4 = '\n \n'
-    depletion_rx_list = ['(n,p)','(n,a)','(n,g)','(n,fission)','(n,2n)','(n,3n)','(n,4n)']
+    
     for nuc in DEPLETION_NUCLIDES:
-      directory = str(self.path_to_lib) + '/'+ nuc
+      directory = nuc
       os.chdir(directory)
       njoy_file = open('njoy_output_groupr_{}'.format(self.total_groups),'r').read()
-      h5name = '{}_{}_groupr.hdf5'.format(nuc,self.total_groups)
+      h5name = '{}.h5'.format(nuc)
       if os.path.isfile(h5name):
         os.remove(h5name)
       f = h5py.File(h5name,'w')
       rxs_group = f.create_group(nuc+'/reactions')
       for rxn in depletion_rx_list:
         key1=rxn
+        #not all nuclides have all 7 depletion reactions, so we
+        #first 'try' to parse it
         try:
           #I guess you can do the parsing in one full/long
           #line but this is probably more readable.
@@ -394,178 +426,55 @@ class FluxTallies:
           #adjacent to each other. For example, first element is an index, second one will 
           #be the xs for that index, third one will be an index, fourth one will be 
           #its xs value and so on. So really, all even elements will be indexes, while all 
-          #odd elements will correspond to xs values (remember: pyhton slicing starts at 0). 
+          #odd elements will correspond to xs values. 
           start_point = int(parse3[0])
           len_xs = int((len(parse3)/2))
-          dummy_array = np.zeros((len_xs,2))
+          dummy_array = np.zeros((self.total_groups-1))
           for j in range(len_xs):
             index = 2*j + 1
-            index_even = j*2
+            index_even = int(parse3[index - 1])
+            #print(index_even)
             #one of the issues with parsing the NJOY output file is that
             #the xs values have the following format '1.5294-9' instead of '1.5294e-9'
-            #therefore, before saving the xs values in the *h5 file we need to write it correctly. 
+            #therefore, before saving the data in *h5 format we need to write it correctly. 
             try:
               #print(start_point)
               xs_val=parse3[index].split('+')
-              print(parse3[index_even])
-              dummy_array[j,0] = float(parse3[index_even])
-              dummy_array[j,1] = float(xs_val[0]+'e+'+xs_val[-1])
+              #print(parse3[index_even])
+              #dummy_array[j,0] = float(parse3[index_even])
+              dummy_array[index_even-1] = float(xs_val[0]+'e+'+xs_val[-1])
             except:
               xs_val=parse3[index].split('-')
-              dummy_array[j,0] = float(parse3[index_even])
-              dummy_array[j,1] = float(xs_val[0]+'e-'+xs_val[-1])
-
+              #dummy_array[j,0] = float(parse3[index_even])
+              dummy_array[index_even-1] = float(xs_val[0]+'e-'+xs_val[-1])
+ 
         except:
           start_point = 0
-          dummy_array = np.zeros((1,1))
-      
-        #matching OpenMC score strings. Unfortunely instead of
-        #'fission' NJOY uses '(n,fission)' and instead '(n,gamma)'
+          dummy_array = np.zeros((1))
+        
+        #Here we are matching OpenMC score strings. 
+        #Unfortunely instead of 'fission' NJOY uses '(n,fission)' and instead '(n,gamma)'
         #NJOY uses '(n,g)'
         
-        #if (rxn == '(n,fission)'):
-        #  rxn =  'fission'
+        if (rxn == '(n,fission)'):
+          rxn =  'fission'
         if (rxn == '(n,g)'):
           rxn = '(n,gamma)'
         
         irxs_group = rxs_group.create_group('{}'.format(rxn))
         irxs_group.create_dataset('groupr',data=dummy_array)
         irxs_group.attrs['start_point'] = start_point
-    f.close()
 
-  def gen_materials(self,geometry,export_xml=True):
-
-    materials = openmc.Materials(geometry.get_all_materials().values())
-    if export_xml:
-      materials.export_to_xml('material.xml')
-      
-  def gen_tallies(self,geometry,export_xml=True):
-
-    # Extract all fuel materials and define tally-filters.
-    materials = geometry.get_materials_by_name(name='Fuel', matching=False)
-    nuclides = ['U238'] #user should specify this.
-    mat_filter = [openmc.MaterialFilter(materials)]
-    #keep in mind that the energy filter will use the default parameters
-    #to create the energy filter if nothing was specify when the FluxTallies object
-    #was instantiated. 
-    energy_filter = self.gen_energy_struc()
-
-    #reaction-rate-tallies
-    tally_rr = openmc.Tally(name="depletion reaction-rate tally")
-    tally_rr.scores = ['(n,gamma)']
-    tally_rr.nuclides = nuclides
-    tally_rr.filters =  mat_filter 
-
-    #flux-tallies
-    tally_flux = openmc.Tally(name="depletion flux-tally")
-    tally_flux.scores=['flux']
-    fine_energy_group = openmc.EnergyFilter(energy_filter)
-    tally_flux.filters = mat_filter
-    tally_flux.filters.append(fine_energy_group)
-    tallies = openmc.Tallies([tally_rr,tally_flux])
-    if export_xml:
-      tallies.export_to_xml('tallies.xml')
-
-  def collapse_from_statepoint(self,statepoint_filename):
-    depletion_rx_list = ['(n,fission)','(n,2n)','(n,3n)','(n,4n)','(n,g)','(n,p)','(n,a)']
-    summary_filename = 'summary.h5'
-    su = openmc.Summary(summary_filename)
-    geom = su.geometry
-    mat_fuel = geom.get_materials_by_name(name='Fuel', matching=False)
-    #mat = geom.get_all_materials()
-    #mat_fuel = mat[10015]
-    sp = openmc.StatePoint(statepoint_filename)
-    tallies = sp.tallies
-    tally_name = tallies[2].name
-    #make this more general?
-    flux = sp.get_tally(name=tally_name).get_pandas_dataframe()
-    df = pd.DataFrame(columns=cols)
-    num_groups = self.total_groups - 1
-    regions = int(len(flux) / num_groups)
-    running_sum = np.zeros([7])
-    counter = -1 
-    
-    for region in range(regions): 
-      shift = region * num_groups
-      mat_id = flux['material'][shift]     
-      nuclides_dens = mat_fuel[region].get_nuclide_densities()
-      for nuc in DEPLETION_NUCLIDES:
-
-        dens = nuclides_dens[nuc][1]
-        directory = str(self.path_to_lib) + '/' + nuc
-        os.chdir(directory)
-        h5file = glob.glob('{}_{}_groupr.hdf5'.format(nuc,self.total_groups))
-        h5file = h5py.File(h5file[0],'r')
-        group = list(h5file.values())[0]
-        for irx,rx in enumerate(depletion_rx_list):
-          counter += 1
-          running_sum[irx] = 0.
-          index = 'reactions/'+rx
-          igroup = group[index]
-          threshold = igroup.attrs['start_point']
-          end = len(igroup['groupr'])
-          for ielement in range(end):
-            if (threshold == 0):
-              group_xs = 0.
-              ielement = 1
-            else:
-              group_xs = igroup['groupr'][ielement]
-              running_sum[irx] += flux['mean'][ielement+threshold+shift-1]*group_xs
-          
-          if (rx == '(n,fission)'):
-            rx =  'fission'
-          if (rx == '(n,g)'):
-            rx = '(n,gamma)'
-          
-          df.loc[counter,'reaction-rate-MG'] = running_sum[irx] * dens
-          df.loc[counter,'material'] = mat_id
-          df.loc[counter,'nuclide'] = nuc
-          df.loc[counter,'score'] = rx
       os.chdir('..')
-    df.to_csv('reaction-rates-MG.csv',sep=' ') 
+      f.close()
 
-  def check_accuracy_from_summary(self,flux_tally_filename=None,reaction_rate_filename=None):
-    summary_filename = 'summary.h5'
-    if flux_tally_filename is None:
-      flux_tally_filename = 'reaction-rates-MG.csv'
-    if reaction_rate_filename is None:
-      reaction_rate_filename = 'reaction-rates.csv'
-    summary_file = '/home/salcedop/RESULTS/profiling/Throughput/block17_testing_direct-tallies/simulations/smr-reaction-rate-dens-included/summary.h5'    
-    error_df = pd.DataFrame(columns=error_cols)
-    rrates_df = pd.read_table(reaction_rate_filename,sep=' ')  
-    fluxtally_df = pd.read_table(flux_tally_filename,sep=' ')
-    #total absorption across entire system.
-    total_abs = rrates_df['mean'].sum(axis=0) 
-    #need to know number-density of each nuclide in each
-    #material to compute macroscopic rate.
-    su = openmc.Summary(summary_filename)
-    geom = su.geometry
-    cnt = -1
-    for imat,mat in enumerate(rrates_df['material']):  
-      cnt += 1
-      nuc = rrates_df.loc[imat,'nuclide']
-      
-      dummy_ft = fluxtally_df[fluxtally_df['nuclide']==nuc]
-      dummy_rr = rrates_df[rrates_df['nuclide']==nuc]
-      #sort 'nuclide' and 'score' columns to make sure both dataframes
-      #are in the same order.
-      dummy_ft = dummy_ft.sort_values(by=['nuclide']).sort_values(by=['score'])
-      dummy_rr = dummy_rr.sort_values(by=['nuclide']).sort_values(by=['score'])
-      #new_index_rr =  dummy_rr[dummy_rr['score']==irxn].index[0]
-      #new_index_ft = dummy_ft[dummy_ft['score']==irxn].index[0]
-      if cnt > 6:
-        cnt = 0
-      new_index_rr =  dummy_rr['score'].index[cnt]
-      new_index_ft = dummy_ft['score'].index[cnt]
+  def generating_cross_section_xml(self):
+  
+     """Generate 'cross_section.xml'
+     """
+     library = openmc.data.DataLibrary()
 
-      irow_ft = dummy_ft.loc[new_index_ft,'reaction-rate-MG']
-      irow_rr = dummy_rr.loc[new_index_rr,'mean']
-      error_df.loc[imat,'reaction-rate-MG'] = irow_ft
-      error_df.loc[imat,'reaction-rate-MC'] = irow_rr
-      error_df.loc[imat,'Error[pcm]'] = abs(irow_ft - irow_rr) / (total_abs * 1.E-5)
-      
-      error_df.loc[imat,'material'] = mat
-      error_df.loc[imat,'nuclide'] = nuc
-      error_df.loc[imat,'score'] = dummy_rr.loc[new_index_rr,'score']
-      
-    error_df.to_csv('reaction-rates-error.csv',sep=' ')
+     for nuc in DEPLETION_NUCLIDES:
+        inuc = "{}/{}.h5".format(nuc,nuc)
+        library.register_file(inuc)
+     library.export_to_xml()

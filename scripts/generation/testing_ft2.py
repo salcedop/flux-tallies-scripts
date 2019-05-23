@@ -2,9 +2,13 @@
 import numpy as np
 from fluxtallies import FluxTallies
 import os
-from data_nuc import DEPLETION_NUCLIDES
+from data_nuc import DEPLETION_NUCLIDES,mypeaks
+import openmc
+import openmc.data
 
 new_pwd = os.getcwd()
+
+DEPLETION_NUCLIDES = ['H1', 'H2', 'H3', 'He3', 'He4', 'Li6', 'Li7']
 
 nuclide_depletion_tally = DEPLETION_NUCLIDES
 score_depletion_tally = ['fission','(n,2n)','(n,3n)','(n,4n)','(n,p)','(n,a)','(n,gamma)'] #['(n,gamma)','fission','(n,2n)']
@@ -23,31 +27,6 @@ a['tally1']['nuclides'] = nuclide_depletion_tally
 
 a['tally1']['scores'] = score_depletion_tally
 
-'''
-a['tally2'] = {}
-
-a['tally2']['id'] = '2'
-
-a['tally2']['name'] = 'nfission-depletion-tally'
-
-a['tally2']['filter'] = ['1']
-
-a['tally2']['nuclides'] = ['U236','Pu240','Cm242','Cf252'] 
-
-a['tally2']['scores'] = ['fission']
-
-a['tally3'] = {}
-
-a['tally3']['id'] = '3'
-
-a['tally3']['name'] = 'np-depletion-tally'
-
-a['tally3']['filter'] = ['1']
-
-a['tally3']['nuclides'] = ['Co58','Re185','Ta180'] 
-
-a['tally3']['scores'] = ['(n,p)']
-'''
 
 a['tally4'] = {}
 
@@ -73,38 +52,67 @@ a['tally5']['nuclides'] = ''
 
 a['tally5']['filter'] = ['1','2']
 
-#bps_matrix = np.matrix([[1.E-5,0.],[1.E-1,200.],[1.E+2,400.],[1.E+4,800.],[1.E+6,100.],[8.E+6,450.],[8.12E+6,450.]])
-#bps_matrix = np.matrix([[1.E-5,0.],[1.,100.],[1.E+2,1550.],[1.E+3,350.],[6.E+4,20],[1.E+5,600],[3.E+5,50],[1.E+6,1200],[2.E+6,100.],[8.E+6,330.],[8.12E+6,700.]])
-#bps_matrix = np.matrix([[1.E-5,0.],[1.,100.],[1.E+2,550.],[1.E+3,350.],[6.E+4,20],[1.E+5,100],[3.E+5,50],[1.E+6,200],[2.E+6,100.],[8.E+6,330.],[8.12E+6,700.]])
-#bps_matrix = np.matrix([[1.E-5,0.],[5.E+4,2500.],[8.11E+6,10000.]])
-#bps_matrix = np.matrix([[1.E-5,0.],[1.,201.],[1.E+2,201.],[1.E+3,201.],[1.E+4,201.],[1.E+5,201.],[1.E+6,201.],[8.E+6,301.],[8.12E+6,1001.]])
-#bps_matrix = np.matrix([[1.0000000000000000E-5,0.],[1.0000000000000000E+2,400.]])#,[1.E+3,200],[1.E+4,200],[1.E+5,200.],[1.E+6,200.],[8.E+6,300.],[8.12E+6,1000.]])
+b = {}
 
-#bps_matrix = np.matrix([[2.E+6,0.],[4.0E+6,108.],[6.E+6,51.],[8.11E+6,101.]])
-#bps_matrix = np.matrix([[1.E-5,0.],[1.E+6,101.],[2.E+6,51.],[4.E+6,201.],[6.E+6,51.],[8.11E+6,201.]])
-bps_matrix = np.matrix([[1.E-5,0.],[1.E+6,101.],[3.E+6,51.],[8.11E+6,551.],[2.E+7,26]])
+b[0] = {'id':'1','name':'reaction-rate','filter':['1'],'nuclides':nuclide_depletion_tally,'scores':score_depletion_tally}
+#b[1] = {'id':'2','name':'single-group-flux','filter':['1'],'nuclides':'','scores':['flux']}
+b[2] = {'id':'2','name':'flux-tally','filter':['1','2'],'nuclides':'','scores':['group-flux']}
 
+#bps_matrix = np.matrix([[1.E-5,0.],[1.E+6,101.],[3.E+6,51.],[8.11E+6,551.],[2.E+7,26]])
 
-prueba = FluxTallies(nuclide_list=nuclide_depletion_tally,score_list=score_depletion_tally,tallies_dict=a)
+#nuc = openmc.data.IncidentNeutron.from_hdf5('O16.h5')
 
-prueba.path_to_lib = new_pwd
+#peaks,_ = find_peaks(nuc[107].xs['294K'].y)
 
-prueba.total_groups = 726  #362 + 250#2500
+#peak_energy = nuc[107].xs['294K'].x[mypeaks][0:27]
+
+bps = np.ones(len(mypeaks)) * 11.
+
+bps[0] = 11.
+
+bps_matrix = np.matrix([[1.E-5,0.],[1.E+6,51.]])
+
+last_row = [[2.E+7,21.]]
+
+for irow,row in enumerate(mypeaks):
+  new_row = [[row,bps[irow]]]
+  bps_matrix = np.concatenate((bps_matrix,new_row))
+
+bps_matrix = np.concatenate((bps_matrix,last_row))
+
+#print(bps_matrix)
+
+len_bps = (len(bps_matrix))
+
+#print(len_bps)
+
+#bps_matrix = np.matrix([[1.E-5,0.],[4.E+4,51.],[1.1E+6,[3.E+6,51.],[8.11E+6,551.],[2.E+7,26]])
+pa = 'U235-prac'
+prueba = FluxTallies(nuclide_list=nuclide_depletion_tally,score_list=score_depletion_tally,tallies_dict=b,path_to_lib=pa)
+
+#prueba.path_to_lib = 'shem-prac'
+
+prueba.total_groups = 341
 
 prueba.lower_lim = 1.E-5
 prueba.epth_lim = 1.0
 prueba.res_lim = 4.E+6
 prueba.upper_lim = 9.E+6
 
-prueba.generate_tallies_xml('tallies.xml',bps_matrix,SHEM361_only=False)
+prueba.temperatures = [300.,1000.]
+prueba.background_xs = [100,1000]
+
+prueba.generate_tallies_xml('/home/salcedop/scripts/tallies.xml',bps_matrix,default_group_struc=True)#shem_path='/home/salcedop/scripts/SHEM361.hdf5')
 
 #prueba.plot_xs(bps_matrix)
 
 #prueba.download_endf() 
 
-#prueba.run_njoy_arbitrary_struc(bps_matrix,SHEM361_only=False)
+prueba.run_njoy_arbitrary_struc(bps_matrix)
 
 #prueba.parse_groupr()
+
+#prueba.generating_cross_section_xml()
 
 #prueba.collapse_from_statepoint(sp)
 
