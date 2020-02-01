@@ -1,5 +1,4 @@
 #include "hdf5_interface.h"
-#include "error.h"
 #include <array>
 #include <cstring>
 #include <sstream>
@@ -7,7 +6,6 @@
 #include "hdf5.h"
 #include "hdf5_hl.h"
 #include "string.h"
-
 
 using namespace std;
 using namespace hdf5;
@@ -22,11 +20,11 @@ hid_t group_id;
 hid_t main_group;
 hid_t xs;
 hsize_t size;
-char name[] = "O16";
-char grp_name[] = {"O16/(n,2n)/groupr"};
+char name[] = "U235";
+char grp_name[] = {"U235/(n,2n)/groupr"};
 const char* name_ptr = &name[0];
 //char* grp_name[] = {"O16/(n,2n)/groupr"};
-string FILE_NAME = "/home/salcedop/groupr_xs/quick_prac/updating_file/smr-prac/dir/O16/O16_1500_groupr.hdf5";
+string FILE_NAME = "/home/salcedop/lib-piecewise-final-practive/MG-lib-save/U235/U235.h5";
 
 //const H5std_string FILE_NAME(path);
 
@@ -34,7 +32,7 @@ hid_t file_id = hdf5::file_open(FILE_NAME,'r');
 //hdf5::get_groups(file_id,&grp_name);
 group_id = hdf5::open_group(file_id,name_ptr);
 hdf5::get_name(group_id,name);
-main_group = hdf5::open_group(group_id,"reactions/(n,2n)");
+main_group = hdf5::open_group(group_id,"reactions/(n,gamma)");
 xs = hdf5::open_dataset(main_group,"groupr");
 hdf5::get_shape(xs,&size);
 float *xs_data = new float[size];

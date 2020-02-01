@@ -87,28 +87,24 @@ len_bps = (len(bps_matrix))
 #print(len_bps)
 
 #bps_matrix = np.matrix([[1.E-5,0.],[4.E+4,51.],[1.1E+6,[3.E+6,51.],[8.11E+6,551.],[2.E+7,26]])
-pa = 'U235-prac'
+pa = 'tests-results'
 prueba = FluxTallies(nuclide_list=nuclide_depletion_tally,score_list=score_depletion_tally,tallies_dict=b,path_to_lib=pa)
 
 #prueba.path_to_lib = 'shem-prac'
 
-prueba.total_groups = 341
+prueba.total_groups = 320
 
-prueba.lower_lim = 1.E-5
-prueba.epth_lim = 1.0
-prueba.res_lim = 4.E+6
-prueba.upper_lim = 9.E+6
 
 prueba.temperatures = [300.,1000.]
-prueba.background_xs = [100,1000]
+#prueba.background_xs = [1.E+10,1000.]
 
-prueba.generate_tallies_xml('/home/salcedop/scripts/tallies.xml',bps_matrix,default_group_struc=True)#shem_path='/home/salcedop/scripts/SHEM361.hdf5')
+prueba.generate_tallies_xml('/home/salcedop/scripts/tallies.xml',bps_matrix,default_group_struc=False)#shem_path='/home/salcedop/scripts/SHEM361.hdf5')
 
 #prueba.plot_xs(bps_matrix)
 
-#prueba.download_endf() 
+prueba.download_endf() 
 
-prueba.run_njoy_arbitrary_struc(bps_matrix)
+prueba.run_njoy_arbitrary_struc(bps_matrix,default_group_struc=True)
 
 #prueba.parse_groupr()
 
