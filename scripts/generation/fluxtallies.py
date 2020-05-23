@@ -5,6 +5,7 @@ import urllib.request
 import re
 import os
 import openmc
+import warnings
 #import openmc.data.njoy
 import openmc.data.njoy_groupr
 import numpy as np
@@ -12,11 +13,10 @@ import h5py
 import copy
 import pandas as pd
 import glob
+from openmc.data import HDF5_VERSION
 from data_nuc import O16Peaks,DEPLETION_NUCLIDES,depletion_rx_list,def_300group_struc
 from xml.etree import ElementTree as ET
 
-#DEPLETION_NUCLIDES = ['H1', 'H2','H3','Na23']
-DEPLETION_NUCLIDES = ['U235']
 try:
 
   from openmc.clean_xml import clean_xml_indentation
@@ -154,26 +154,25 @@ class FluxTallies:
     """
     #built-in bps_matriz depending on the number of total matrix.
 
-    if ((self.total_groups == 501) or (self.total_groups == None)):
+    if ((self.total_groups == 500) or (self.total_groups == None)):
         groups_400KeV_3MeV = 101.
         groups_epithermal_resolved = 51.
         groups_above_10MeV = 91. 
     
-    elif (self.total_groups == 301):
+    elif (self.total_groups == 300):
         groups_400KeV_3MeV = 11.
         groups_epithermal_resolved = 11.
         groups_above_10MeV = 21. 
 
     else:
         raise ValueError("{} not valid for total number of groups, "
-                         "please choose either 301 or 501 groups".format(self.total_groups))
+                         "please choose either 300 or 500 groups".format(self.total_groups))
 
     bps = np.ones(len(O16Peaks)) * 11.
     bps[0] = groups_400KeV_3MeV
-    bps_matrix = np.matrix([[1.E-5,0.],[4.E+4,51.]])
-    last_row = [[2.E+7,91.]]
+    bps_matrix = np.matrix([[1.E-5,0.],[4.E+4,groups_epithermal_resolved]])
+    last_row = [[2.E+7,groups_above_10MeV]]
     len_bps = len(bps_matrix)
-    
     for irow,row in enumerate(O16Peaks):
         new_row = [[row,bps[irow]]]
         bps_matrix = np.concatenate((bps_matrix,new_row))
@@ -217,12 +216,12 @@ class FluxTallies:
             else:    
                 current_struct = np.logspace(np.log10(bps_matrix[i-1,0]),np.log10(bps_matrix[i,0]),int(bps_matrix[i,1]))
                 group_struc_accumulate = np.concatenate((group_struc_accumulate,current_struct[1:]),axis=0)
-        group_struc_accumulate = sorted(group_struc_accumulate) 
+        group_struc_accumulate = sorted(group_struc_accumulate)  
         if (sum_bps != self._total_groups):
+
+           warnings.warn('WARNING: The input total number of groups is {} and does not match'
+                 'the length of the break points matrix, which is {}.'.format(self._total_groups,sum_bps))
            self._total_groups = int(sum_bps)
-           print('WARNING: The input for total number of groups did not match'
-                 'the length of the break points matrix.')
-        
     return (group_struc_accumulate)
 
   def generate_tallies_xml(self,filename_string,default_group_struc=False):
@@ -368,12 +367,12 @@ class FluxTallies:
       else:
         extra = ' '
       energy_text_input += str(energy) + extra
-    #looping over all nuclides. 
+    #looping over all nuclides.
     for nuc in DEPLETION_NUCLIDES:
       directory = nuc
       os.chdir(directory)
       #when running GROUPR, you must specify the total number of groups minus 1.
-      openmc.data.njoy_groupr.make_xs(filename,lorde=1,temperatures=self.temperatures,background_xs=[1000.,10.],
+      openmc.data.njoy_groupr.make_xs(filename,lorde=1,temperatures=self.temperatures,
                                     group_struct=energy_text_input,num_groups=self.total_groups,ace=ace,xsdir=xsdir,moder=moder,
                                     unresr=unresr,purr=purr,groupr=groupr,acer=acer,stdout=stdout,one_over_e=one_over_e)
    
@@ -397,7 +396,11 @@ class FluxTallies:
            os.remove(h5name)
         njoy_file = open('njoy_output_groupr_{}'.format(self.total_groups),'r').read()
         f = h5py.File(h5name,'w')
+        #f.attrs['filetype'] = np.string_('data_neutron')
+        f.attrs['version'] = np.array(HDF5_VERSION)
         for itemp,temp in enumerate(self.temperatures):
+                nuc_group = f.create_group('{}'.format(nuc))
+                nuc_group.attrs['filetype'] = 'hybrid'
                 for rxn in depletion_rx_list:
                     key1=rxn
                     #Here we are matching OpenMC score strings. 
@@ -426,7 +429,7 @@ class FluxTallies:
                             #for iback,back in enumerate(self.background_xs):
                             #index_xs =
                             #index_parse = -1 * (len_background_xs + 1)
-                            group_name = '{}/reactions/{}/{}K'.format(nuc,rxn,temp)
+                            group_name = '{}/reactions/{}'.format(nuc,rxn)
                             
                             irxs_group = f.create_group(group_name)
                             len_xs = int((len(parse)/2))
@@ -461,7 +464,7 @@ class FluxTallies:
                             start_point = 0
                             dummy_array = np.zeros((1))
                             
-                            group_name = '{}/reactions/{}/{}K/'.format(nuc,rxn,temp)
+                            group_name = '{}/reactions/{}'.format(nuc,rxn)
                             print("from back: "+group_name)
                             irxs_group = f.create_group(group_name)
                             irxs_group.create_dataset('groupr',data=dummy_array)
